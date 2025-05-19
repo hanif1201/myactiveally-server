@@ -1,181 +1,77 @@
 // controllers/aiController.js - AI workout generation
-const { Configuration, OpenAIApi } = require("openai");
-const config = require("../config/config");
+const OpenAI = require("openai");
+const config = require("config");
 const User = require("../models/User");
 const Workout = require("../models/Workout");
 
-// Configure OpenAI
-const openaiConfig = new Configuration({
-  apiKey: config.openaiApiKey,
+// Initialize OpenAI
+const openai = new OpenAI({
+  apiKey: config.get("openai.apiKey"),
 });
-const openai = new OpenAIApi(openaiConfig);
 
 // Generate a workout plan based on user preferences
 exports.generateWorkoutPlan = async (req, res) => {
   try {
-    const { goal, fitnessLevel, duration, frequency, equipment, limitations } =
-      req.body;
-
-    // Validate required fields
-    if (!goal || !fitnessLevel || !duration || !frequency) {
-      return res
-        .status(400)
-        .json({ msg: "Missing required workout parameters" });
-    }
+    const {
+      goal,
+      fitnessLevel,
+      duration,
+      frequency,
+      preferences,
+      limitations,
+    } = req.body;
 
     // Get user profile for additional context
-    const user = await User.findById(req.user.id);
-
+    const user = await User.findById(req.user.id).select("-password");
     if (!user) {
       return res.status(404).json({ msg: "User not found" });
     }
 
-    // Build prompt for OpenAI
-    const prompt = `
-    Create a detailed workout plan with the following parameters:
-    
+    const prompt = `Create a personalized workout plan for a ${fitnessLevel} level user with the following details:
     Goal: ${goal}
-    Fitness Level: ${fitnessLevel}
     Duration: ${duration} weeks
-    Frequency: ${frequency} workouts per week
-    Available Equipment: ${equipment || "minimal"}
-    ${limitations ? `Limitations/Injuries: ${limitations}` : ""}
-    
+    Frequency: ${frequency} times per week
+    Preferences: ${preferences || "None specified"}
+    Limitations: ${limitations || "None specified"}
     User Profile:
-    Age: ${user.age || "Not specified"}
-    Gender: ${user.gender || "Not specified"}
-    Current Fitness Level: ${user.fitnessLevel || "Not specified"}
-    Preferred Workout Types: ${
-      user.preferredWorkouts
-        ? user.preferredWorkouts.join(", ")
-        : "Not specified"
+    - Age: ${user.age || "Not specified"}
+    - Gender: ${user.gender || "Not specified"}
+    - Current Fitness Level: ${user.fitnessLevel || "Not specified"}
+    - Preferred Workouts: ${
+      user.preferredWorkouts?.join(", ") || "None specified"
     }
     
-    Please create a complete workout plan that includes:
-    1. A name for the program
-    2. An overall description of the program
-    3. A weekly schedule with specific workouts for each day
-    4. For each workout day, include:
-       - Warm-up exercises
-       - Main workout exercises with sets, reps, and rest periods
-       - Cool-down stretches
-       - Total duration estimate
-    5. Include specific exercise names, not generic descriptions
-    
-    FORMAT THE RESPONSE AS JSON with the following structure:
-    {
-      "name": "Program Name",
-      "description": "Program description",
-      "level": "beginner/intermediate/advanced/expert",
-      "goal": "primary goal",
-      "duration": { "value": number, "unit": "weeks" },
-      "frequency": number,
-      "equipment": ["required equipment"],
-      "schedule": [
-        {
-          "name": "Day 1: Focus Area",
-          "dayNumber": 1,
-          "focus": "focus area",
-          "warmup": {
-            "duration": minutes,
-            "description": "warmup description",
-            "exercises": [
-              {
-                "name": "Exercise Name",
-                "sets": number,
-                "reps": "rep count or range",
-                "notes": "optional notes"
-              }
-            ]
-          },
-          "mainWorkout": {
-            "exercises": [
-              {
-                "name": "Exercise Name",
-                "sets": number,
-                "reps": "rep count or range",
-                "restPeriod": seconds,
-                "weight": "weight description",
-                "notes": "optional notes"
-              }
-            ],
-            "format": "straight_sets/circuit/etc",
-            "notes": "optional notes"
-          },
-          "cooldown": {
-            "duration": minutes,
-            "description": "cooldown description",
-            "exercises": [
-              {
-                "name": "Stretch Name",
-                "duration": seconds,
-                "notes": "optional notes"
-              }
-            ]
-          },
-          "duration": total_minutes,
-          "intensity": "low/moderate/high/very_high",
-          "notes": "optional notes"
-        }
-      ],
-      "notes": "Program notes and tips"
-    }
-    `;
+    Please provide a detailed workout plan that includes:
+    1. Weekly schedule
+    2. Specific exercises for each day
+    3. Sets, reps, and rest periods
+    4. Progression plan
+    5. Safety considerations
+    6. Tips for success`;
 
-    // Call OpenAI API
-    const completion = await openai.createChatCompletion({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         {
           role: "system",
           content:
-            "You are a certified fitness trainer specializing in creating personalized workout plans.",
+            "You are a professional fitness trainer and workout plan specialist. Provide detailed, safe, and effective workout plans.",
         },
-        { role: "user", content: prompt },
+        {
+          role: "user",
+          content: prompt,
+        },
       ],
       temperature: 0.7,
-      max_tokens: 2500,
+      max_tokens: 2000,
     });
 
-    // Extract the workout plan from the response
-    let workoutPlan;
-    try {
-      const content = completion.data.choices[0].message.content;
-      // Extract JSON from the response (in case there's any additional text)
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        workoutPlan = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error("Could not extract valid JSON from the AI response");
-      }
-    } catch (parseError) {
-      console.error("Error parsing AI response:", parseError);
-      return res.status(500).json({ msg: "Error generating workout plan" });
-    }
-
-    // Save the workout to the database
-    const newWorkout = new Workout({
-      name: workoutPlan.name,
-      creator: req.user.id,
-      isAiGenerated: true,
-      description: workoutPlan.description,
-      level: workoutPlan.level,
-      goal: workoutPlan.goal,
-      duration: workoutPlan.duration,
-      frequency: workoutPlan.frequency,
-      schedule: workoutPlan.schedule,
-      equipment: workoutPlan.equipment,
-      notes: workoutPlan.notes,
+    res.json({
+      workoutPlan: completion.choices[0].message.content,
     });
-
-    await newWorkout.save();
-
-    res.json(newWorkout);
   } catch (err) {
     console.error("Error in generateWorkoutPlan:", err.message);
-    res
-      .status(500)
-      .json({ msg: "Error generating workout plan", error: err.message });
+    res.status(500).json({ msg: "Server error" });
   }
 };
 
@@ -301,7 +197,7 @@ exports.getExerciseRecommendations = async (req, res) => {
     `;
 
     // Call OpenAI API
-    const completion = await openai.createChatCompletion({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         {
@@ -318,7 +214,7 @@ exports.getExerciseRecommendations = async (req, res) => {
     // Extract the exercise recommendations from the response
     let exercises;
     try {
-      const content = completion.data.choices[0].message.content;
+      const content = completion.choices[0].message.content;
       // Extract JSON from the response
       const jsonMatch = content.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
@@ -336,12 +232,10 @@ exports.getExerciseRecommendations = async (req, res) => {
     res.json(exercises);
   } catch (err) {
     console.error("Error in getExerciseRecommendations:", err.message);
-    res
-      .status(500)
-      .json({
-        msg: "Error generating exercise recommendations",
-        error: err.message,
-      });
+    res.status(500).json({
+      msg: "Error generating exercise recommendations",
+      error: err.message,
+    });
   }
 };
 
@@ -410,7 +304,7 @@ exports.analyzeWorkout = async (req, res) => {
     `;
 
     // Call OpenAI API
-    const completion = await openai.createChatCompletion({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         {
@@ -427,7 +321,7 @@ exports.analyzeWorkout = async (req, res) => {
     // Extract the analysis from the response
     let analysis;
     try {
-      const content = completion.data.choices[0].message.content;
+      const content = completion.choices[0].message.content;
       // Extract JSON from the response
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -541,7 +435,7 @@ exports.getNutritionAdvice = async (req, res) => {
     `;
 
     // Call OpenAI API
-    const completion = await openai.createChatCompletion({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         {
@@ -558,7 +452,7 @@ exports.getNutritionAdvice = async (req, res) => {
     // Extract the nutrition advice from the response
     let nutritionAdvice;
     try {
-      const content = completion.data.choices[0].message.content;
+      const content = completion.choices[0].message.content;
       // Extract JSON from the response
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -577,5 +471,131 @@ exports.getNutritionAdvice = async (req, res) => {
     res
       .status(500)
       .json({ msg: "Error generating nutrition advice", error: err.message });
+  }
+};
+
+// @desc    Generate a personalized nutrition plan
+// @route   POST /api/ai/nutrition-plan
+// @access  Private
+exports.generateNutritionPlan = async (req, res) => {
+  try {
+    const {
+      goal,
+      dietaryRestrictions,
+      mealPreference,
+      allergies,
+      dailyCalories,
+    } = req.body;
+
+    // Get user profile for additional context
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const prompt = `Create a personalized nutrition plan for a user with the following details:
+    Goal: ${goal}
+    Dietary Restrictions: ${dietaryRestrictions || "None specified"}
+    Meal Preference: ${mealPreference || "Not specified"}
+    Allergies: ${allergies || "None specified"}
+    Daily Calorie Target: ${dailyCalories || "Not specified"}
+    User Profile:
+    - Age: ${user.age || "Not specified"}
+    - Gender: ${user.gender || "Not specified"}
+    - Weight: ${user.weight || "Not specified"}
+    - Height: ${user.height || "Not specified"}
+    - Activity Level: ${user.activityLevel || "Not specified"}
+    
+    Please provide a detailed nutrition plan that includes:
+    1. Daily meal breakdown
+    2. Specific food recommendations
+    3. Portion sizes
+    4. Meal timing
+    5. Hydration guidelines
+    6. Supplement recommendations (if applicable)
+    7. Tips for meal preparation
+    8. Grocery shopping list`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a professional nutritionist and diet plan specialist. Provide detailed, healthy, and practical nutrition plans.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 2000,
+    });
+
+    res.json({
+      nutritionPlan: completion.choices[0].message.content,
+    });
+  } catch (err) {
+    console.error("Error in generateNutritionPlan:", err.message);
+    res.status(500).json({ msg: "Server error" });
+  }
+};
+
+// @desc    Get AI-powered fitness advice
+// @route   POST /api/ai/fitness-advice
+// @access  Private
+exports.getFitnessAdvice = async (req, res) => {
+  try {
+    const { question, context } = req.body;
+
+    // Get user profile for additional context
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const prompt = `Provide fitness advice for a user with the following question and context:
+    Question: ${question}
+    Additional Context: ${context || "None provided"}
+    User Profile:
+    - Age: ${user.age || "Not specified"}
+    - Gender: ${user.gender || "Not specified"}
+    - Fitness Level: ${user.fitnessLevel || "Not specified"}
+    - Goals: ${user.goals?.join(", ") || "Not specified"}
+    - Preferred Workouts: ${
+      user.preferredWorkouts?.join(", ") || "None specified"
+    }
+    
+    Please provide:
+    1. Direct answer to the question
+    2. Scientific explanation
+    3. Practical tips
+    4. Safety considerations
+    5. Additional resources or references`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a professional fitness expert and health advisor. Provide accurate, safe, and practical fitness advice based on scientific principles.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 1500,
+    });
+
+    res.json({
+      advice: completion.choices[0].message.content,
+    });
+  } catch (err) {
+    console.error("Error in getFitnessAdvice:", err.message);
+    res.status(500).json({ msg: "Server error" });
   }
 };

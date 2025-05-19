@@ -6,11 +6,25 @@ const ExerciseSchema = new mongoose.Schema({
     required: true,
   },
   description: String,
-  sets: Number,
-  reps: String, // Can be a range like "8-12" or specific like "10"
-  duration: Number, // In seconds, for timed exercises
+  sets: {
+    type: Number,
+    required: true,
+    min: 1,
+  },
+  reps: {
+    type: Number,
+    required: true,
+    min: 1,
+  },
+  duration: {
+    type: Number,
+    min: 0,
+  },
   restPeriod: Number, // In seconds
-  weight: String, // Can be "bodyweight" or a specific weight
+  weight: {
+    type: Number,
+    min: 0,
+  },
   intensity: {
     type: String,
     enum: ["light", "moderate", "heavy", "maximum"],
@@ -129,116 +143,41 @@ const WorkoutDaySchema = new mongoose.Schema({
 
 const WorkoutSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: true,
-    },
-    creator: {
+    user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-    isAiGenerated: {
-      type: Boolean,
-      default: false,
-    },
-    description: String,
-    level: {
+    type: {
       type: String,
-      enum: ["beginner", "intermediate", "advanced", "expert"],
       required: true,
-    },
-    goal: {
-      type: String,
-      enum: [
-        "weight_loss",
-        "muscle_gain",
-        "strength",
-        "endurance",
-        "flexibility",
-        "general_fitness",
-        "sport_specific",
-      ],
-      required: true,
+      enum: ["strength", "cardio", "flexibility", "hiit", "other"],
     },
     duration: {
-      value: Number,
-      unit: {
-        type: String,
-        enum: ["days", "weeks", "months"],
-        default: "weeks",
-      },
+      type: Number,
+      required: true,
+      min: 1,
     },
-    frequency: Number, // Workouts per week
-    schedule: [WorkoutDaySchema],
-    equipment: [
-      {
-        type: String,
-        enum: [
-          "none",
-          "minimal",
-          "full_gym",
-          "home_gym",
-          "resistance_bands",
-          "dumbbells",
-          "barbell",
-          "kettlebells",
-          "machines",
-          "cardio_equipment",
-        ],
-      },
-    ],
-    tags: [String],
+    intensity: {
+      type: String,
+      required: true,
+      enum: ["low", "medium", "high"],
+    },
+    exercises: [ExerciseSchema],
     notes: String,
-    isPublic: {
-      type: Boolean,
-      default: false,
+    date: {
+      type: Date,
+      default: Date.now,
     },
-    averageRating: {
-      type: Number,
-      min: 0,
-      max: 5,
-      default: 0,
+    status: {
+      type: String,
+      enum: ["planned", "completed", "cancelled"],
+      default: "planned",
     },
-    totalReviews: {
-      type: Number,
-      default: 0,
+    match: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Match",
     },
-    reviews: [
-      {
-        user: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-        },
-        rating: {
-          type: Number,
-          required: true,
-          min: 1,
-          max: 5,
-        },
-        comment: String,
-        date: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
-    progressTracking: {
-      type: Boolean,
-      default: true,
-    },
-    completionRate: {
-      type: Number,
-      min: 0,
-      max: 100,
-      default: 0,
-    },
-    usersFollowing: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
     createdAt: {
       type: Date,
       default: Date.now,
@@ -250,5 +189,11 @@ const WorkoutSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Update the updatedAt timestamp before saving
+WorkoutSchema.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
 
 module.exports = mongoose.model("Workout", WorkoutSchema);

@@ -13,7 +13,7 @@ module.exports = async (req, res, next) => {
 
   try {
     // Verify token
-    const decoded = jwt.verify(token, config.jwtSecret);
+    const decoded = jwt.verify(token, config.get("jwtSecret"));
 
     // Add user from payload
     req.user = decoded.user;
@@ -32,6 +32,7 @@ module.exports = async (req, res, next) => {
     req.userDetails = user;
     next();
   } catch (err) {
+    console.error("Error in auth middleware:", err.message);
     res.status(401).json({ msg: "Token is not valid" });
   }
 };

@@ -1,5 +1,64 @@
 const mongoose = require("mongoose");
 
+const MessageSchema = new mongoose.Schema({
+  sender: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  content: {
+    type: String,
+    required: true,
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now,
+  },
+  isRead: {
+    type: Boolean,
+    default: false,
+  },
+});
+
+const PlannedWorkoutSchema = new mongoose.Schema({
+  date: {
+    type: Date,
+    required: true,
+  },
+  time: {
+    type: String,
+    required: true,
+  },
+  duration: {
+    type: Number, // in minutes
+    required: true,
+  },
+  type: {
+    type: String,
+    required: true,
+  },
+  location: {
+    type: String,
+  },
+  status: {
+    type: String,
+    enum: ["proposed", "confirmed", "completed", "cancelled"],
+    default: "proposed",
+  },
+  notes: {
+    type: String,
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
 const MatchSchema = new mongoose.Schema(
   {
     users: [
@@ -62,53 +121,12 @@ const MatchSchema = new mongoose.Schema(
         default: 0,
       },
     },
-    messages: [
-      {
-        sender: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          required: true,
-        },
-        content: {
-          type: String,
-          required: true,
-        },
-        timestamp: {
-          type: Date,
-          default: Date.now,
-        },
-        isRead: {
-          type: Boolean,
-          default: false,
-        },
-      },
-    ],
+    messages: [MessageSchema],
     lastMessageTimestamp: {
       type: Date,
       default: null,
     },
-    plannedWorkouts: [
-      {
-        date: Date,
-        location: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Gym",
-        },
-        status: {
-          type: String,
-          enum: ["proposed", "confirmed", "completed", "cancelled"],
-          default: "proposed",
-        },
-        proposer: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-        },
-        workout: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Workout",
-        },
-      },
-    ],
+    plannedWorkouts: [PlannedWorkoutSchema],
     isActive: {
       type: Boolean,
       default: true,
@@ -124,8 +142,30 @@ const MatchSchema = new mongoose.Schema(
         return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       },
     },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );
+
+// Update the updatedAt timestamp before saving
+MatchSchema.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+// Update lastMessageTimestamp when a new message is added
+MatchSchema.pre("save", function (next) {
+  if (this.isModified("messages")) {
+    this.lastMessageTimestamp = Date.now();
+  }
+  next();
+});
 
 module.exports = mongoose.model("Match", MatchSchema);

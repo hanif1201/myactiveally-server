@@ -6,6 +6,70 @@ const userController = require("../controllers/userController");
 const auth = require("../middleware/auth");
 const instructor = require("../middleware/instructor");
 const validation = require("../middleware/validation");
+const User = require("../models/User");
+const multer = require("multer");
+const path = require("path");
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/profile-images");
+  },
+  filename: function (req, file, cb) {
+    cb(null, `${req.user.id}-${Date.now()}${path.extname(file.originalname)}`);
+  },
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5000000 }, // 5MB limit
+  fileFilter: function (req, file, cb) {
+    const filetypes = /jpeg|jpg|png/;
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(
+      path.extname(file.originalname).toLowerCase()
+    );
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    }
+    cb(new Error("Only .png, .jpg and .jpeg format allowed!"));
+  },
+});
+
+// @route   GET api/users
+// @desc    Get all users
+// @access  Private
+router.get("/", auth, async (req, res) => {
+  try {
+    const users = await User.find().select("-password").sort({ name: 1 });
+    res.json(users);
+  } catch (err) {
+    console.error("Error in GET /api/users:", err.message);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// @route   GET api/users/:id
+// @desc    Get user by ID
+// @access  Private
+router.get("/:id", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    res.json(user);
+  } catch (err) {
+    console.error("Error in GET /api/users/:id:", err.message);
+    if (err.kind === "ObjectId") {
+      return res.status(404).json({ msg: "User not found" });
+    }
+    res.status(500).json({ msg: "Server error" });
+  }
+});
 
 // @route   GET api/users/profile
 // @desc    Get current user profile
@@ -15,24 +79,48 @@ router.get("/profile", auth, userController.getCurrentProfile);
 // @route   PUT api/users/profile
 // @desc    Update user profile
 // @access  Private
-router.put(
-  "/profile",
-  [
-    auth,
-    check("name", "Name is required").optional(),
-    check("age", "Age must be between 16 and 100")
-      .optional()
-      .isInt({ min: 16, max: 100 }),
-    check("gender", "Invalid gender")
-      .optional()
-      .isIn(["male", "female", "other", "prefer_not_to_say"]),
-    check("fitnessLevel", "Invalid fitness level")
-      .optional()
-      .isIn(["beginner", "intermediate", "advanced", "professional"]),
-    validation,
-  ],
-  userController.updateProfile
-);
+router.put("/profile", auth, async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      age,
+      gender,
+      fitnessLevel,
+      preferredWorkouts,
+      bio,
+      location,
+    } = req.body;
+
+    // Build user object
+    const userFields = {};
+    if (name) userFields.name = name;
+    if (email) userFields.email = email;
+    if (age) userFields.age = age;
+    if (gender) userFields.gender = gender;
+    if (fitnessLevel) userFields.fitnessLevel = fitnessLevel;
+    if (preferredWorkouts) userFields.preferredWorkouts = preferredWorkouts;
+    if (bio) userFields.bio = bio;
+    if (location) userFields.location = location;
+
+    let user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: userFields },
+      { new: true }
+    ).select("-password");
+
+    res.json(user);
+  } catch (err) {
+    console.error("Error in PUT /api/users/profile:", err.message);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
 
 // @route   PUT api/users/instructor-profile
 // @desc    Update instructor profile
@@ -57,18 +145,28 @@ router.put(
 // @access  Private
 router.post(
   "/profile-image",
-  [
-    auth,
-    check("imageUrl", "Image URL is required").not().isEmpty(),
-    validation,
-  ],
-  userController.uploadProfileImage
-);
+  [auth, upload.single("image")],
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ msg: "No file uploaded" });
+      }
 
-// @route   GET api/users/:id
-// @desc    Get user by ID
-// @access  Private
-router.get("/:id", auth, userController.getUserById);
+      const user = await User.findById(req.user.id);
+      if (!user) {
+        return res.status(404).json({ msg: "User not found" });
+      }
+
+      user.profileImage = `/uploads/profile-images/${req.file.filename}`;
+      await user.save();
+
+      res.json({ profileImage: user.profileImage });
+    } catch (err) {
+      console.error("Error in POST /api/users/profile-image:", err.message);
+      res.status(500).json({ msg: "Server error" });
+    }
+  }
+);
 
 // @route   GET api/users/matches/find
 // @desc    Find potential matches

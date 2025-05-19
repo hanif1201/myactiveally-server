@@ -222,3 +222,54 @@ exports.resetPassword = async (req, res) => {
     res.status(500).send("Server error");
   }
 };
+
+// Admin login
+exports.adminLogin = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // Check if user exists
+    const user = await User.findOne({ email }).select("+password");
+    if (!user) {
+      return res.status(400).json({ msg: "Invalid credentials" });
+    }
+
+    // Check if user is an admin
+    if (user.role !== "admin") {
+      return res.status(403).json({ msg: "Not authorized as admin" });
+    }
+
+    // Check password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(400).json({ msg: "Invalid credentials" });
+    }
+
+    // Check if account is active
+    if (!user.isActive || user.accountStatus !== "active") {
+      return res.status(401).json({ msg: "Account is not active" });
+    }
+
+    // Create and return JWT token
+    const payload = {
+      user: {
+        id: user.id,
+        userType: user.userType,
+        role: user.role,
+      },
+    };
+
+    jwt.sign(
+      payload,
+      config.jwtSecret,
+      { expiresIn: config.jwtExpiration },
+      (err, token) => {
+        if (err) throw err;
+        res.json({ token });
+      }
+    );
+  } catch (err) {
+    console.error("Error in adminLogin:", err.message);
+    res.status(500).send("Server error");
+  }
+};

@@ -1,5 +1,33 @@
 const mongoose = require("mongoose");
 
+const HoursSchema = new mongoose.Schema({
+  day: {
+    type: String,
+    required: true,
+    enum: [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
+      "sunday",
+    ],
+  },
+  open: {
+    type: String,
+    required: true,
+  },
+  close: {
+    type: String,
+    required: true,
+  },
+  isClosed: {
+    type: Boolean,
+    default: false,
+  },
+});
+
 const GymSchema = new mongoose.Schema(
   {
     name: {
@@ -8,104 +36,57 @@ const GymSchema = new mongoose.Schema(
       trim: true,
     },
     address: {
-      street: String,
-      city: String,
-      state: String,
-      zipCode: String,
-      country: String,
-      formattedAddress: String,
+      type: String,
+      required: true,
     },
+    city: {
+      type: String,
+      required: true,
+    },
+    state: {
+      type: String,
+      required: true,
+    },
+    zipCode: {
+      type: String,
+      required: true,
+    },
+    phone: {
+      type: String,
+      required: true,
+    },
+    email: {
+      type: String,
+      required: true,
+    },
+    website: {
+      type: String,
+    },
+    description: {
+      type: String,
+      required: true,
+    },
+    amenities: [
+      {
+        type: String,
+      },
+    ],
+    hours: [HoursSchema],
     location: {
       type: {
         type: String,
         enum: ["Point"],
-        default: "Point",
+        required: true,
       },
       coordinates: {
         type: [Number], // [longitude, latitude]
         required: true,
       },
     },
-    placeId: {
-      type: String, // Google Maps Place ID
-      unique: true,
-    },
-    phone: String,
-    website: String,
-    email: String,
-    images: [String],
-    description: String,
-    hours: {
-      monday: { open: String, close: String },
-      tuesday: { open: String, close: String },
-      wednesday: { open: String, close: String },
-      thursday: { open: String, close: String },
-      friday: { open: String, close: String },
-      saturday: { open: String, close: String },
-      sunday: { open: String, close: String },
-    },
-    amenities: [
-      {
-        type: String,
-        enum: [
-          "free_weights",
-          "cardio_equipment",
-          "weight_machines",
-          "pool",
-          "sauna",
-          "steam_room",
-          "spa",
-          "group_classes",
-          "personal_training",
-          "locker_room",
-          "showers",
-          "towel_service",
-          "childcare",
-          "wifi",
-          "parking",
-          "cafe",
-          "pro_shop",
-          "basketball_court",
-          "racquetball",
-          "physical_therapy",
-          "massage",
-          "24_hour_access",
-        ],
-      },
-    ],
-    businessHours: [
-      {
-        day: {
-          type: String,
-          enum: [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "saturday",
-            "sunday",
-          ],
-        },
-        open: String, // Format: "HH:MM"
-        close: String, // Format: "HH:MM"
-      },
-    ],
-    pricing: {
-      dayPass: Number,
-      monthlyMembership: Number,
-      annualMembership: Number,
-      hasFreeTrials: Boolean,
-      hasStudentDiscounts: Boolean,
-    },
-    averageRating: {
+    rating: {
       type: Number,
       min: 0,
       max: 5,
-      default: 0,
-    },
-    totalReviews: {
-      type: Number,
       default: 0,
     },
     reviews: [
@@ -127,19 +108,10 @@ const GymSchema = new mongoose.Schema(
         },
       },
     ],
-    associatedInstructors: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Instructor",
-      },
-    ],
-    visitCount: {
-      type: Number,
-      default: 0,
-    },
-    isVerified: {
-      type: Boolean,
-      default: false,
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
     isActive: {
       type: Boolean,
@@ -159,5 +131,11 @@ const GymSchema = new mongoose.Schema(
 
 // Create index for location-based queries
 GymSchema.index({ location: "2dsphere" });
+
+// Update the updatedAt timestamp before saving
+GymSchema.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
 
 module.exports = mongoose.model("Gym", GymSchema);

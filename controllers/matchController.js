@@ -221,11 +221,9 @@ exports.getMatchSuggestions = async (req, res) => {
 
     // Ensure user has a complete profile
     if (!user.isProfileComplete) {
-      return res
-        .status(400)
-        .json({
-          msg: "Please complete your profile before getting match suggestions",
-        });
+      return res.status(400).json({
+        msg: "Please complete your profile before getting match suggestions",
+      });
     }
 
     // Get user's location
@@ -300,6 +298,232 @@ exports.getMatchSuggestions = async (req, res) => {
 
     // Return top matches (limit to 10)
     res.json(matchesWithScores.slice(0, 10));
+  } catch (err) {
+    console.error("Error in getMatchSuggestions:", err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+const Match = require("../models/Match");
+const User = require("../models/User");
+
+// Create a new match request
+exports.createMatch = async (req, res) => {
+  try {
+    const { receiverId } = req.body;
+
+    // Check if receiver exists
+    const receiver = await User.findById(receiverId);
+    if (!receiver) {
+      return res.status(404).json({ msg: "Receiver not found" });
+    }
+
+    // Check if match already exists
+    const existingMatch = await Match.findOne({
+      $or: [
+        { initiator: req.user.id, receiver: receiverId },
+        { initiator: receiverId, receiver: req.user.id },
+      ],
+    });
+
+    if (existingMatch) {
+      return res.status(400).json({ msg: "Match already exists" });
+    }
+
+    // Create new match
+    const match = new Match({
+      initiator: req.user.id,
+      receiver: receiverId,
+      status: "pending",
+      users: [req.user.id, receiverId],
+      matchedAt: Date.now(),
+      isActive: true,
+    });
+
+    await match.save();
+
+    // Populate user details
+    await match.populate("initiator receiver", "name profileImage");
+
+    res.json(match);
+  } catch (err) {
+    console.error("Error in createMatch:", err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// Respond to a match request
+exports.respondToMatch = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const { status } = req.body;
+
+    const match = await Match.findById(matchId);
+
+    if (!match) {
+      return res.status(404).json({ msg: "Match not found" });
+    }
+
+    // Verify the user is the receiver
+    if (match.receiver.toString() !== req.user.id) {
+      return res
+        .status(403)
+        .json({ msg: "Not authorized to respond to this match" });
+    }
+
+    // Update match status
+    match.status = status;
+    if (status === "accepted") {
+      match.acceptedAt = Date.now();
+    }
+
+    await match.save();
+
+    // Populate user details
+    await match.populate("initiator receiver", "name profileImage");
+
+    res.json(match);
+  } catch (err) {
+    console.error("Error in respondToMatch:", err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// Get match details
+exports.getMatchDetails = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+
+    const match = await Match.findById(matchId)
+      .populate("initiator receiver", "name profileImage")
+      .populate("messages.sender", "name profileImage");
+
+    if (!match) {
+      return res.status(404).json({ msg: "Match not found" });
+    }
+
+    // Verify the user is part of this match
+    if (!match.users.includes(req.user.id)) {
+      return res.status(403).json({ msg: "Not authorized to view this match" });
+    }
+
+    res.json(match);
+  } catch (err) {
+    console.error("Error in getMatchDetails:", err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// Send a message in a match
+exports.sendMessage = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const { content } = req.body;
+
+    const match = await Match.findById(matchId);
+
+    if (!match) {
+      return res.status(404).json({ msg: "Match not found" });
+    }
+
+    // Verify the user is part of this match
+    if (!match.users.includes(req.user.id)) {
+      return res
+        .status(403)
+        .json({ msg: "Not authorized to send messages in this match" });
+    }
+
+    // Add message
+    match.messages.push({
+      sender: req.user.id,
+      content,
+      timestamp: Date.now(),
+      isRead: false,
+    });
+    match.lastMessageTimestamp = Date.now();
+
+    await match.save();
+
+    // Populate sender details
+    await match.populate("messages.sender", "name profileImage");
+
+    res.json(match.messages[match.messages.length - 1]);
+  } catch (err) {
+    console.error("Error in sendMessage:", err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// Get messages for a match
+exports.getMessages = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const { limit = 50, before } = req.query;
+
+    const match = await Match.findById(matchId).populate(
+      "messages.sender",
+      "name profileImage"
+    );
+
+    if (!match) {
+      return res.status(404).json({ msg: "Match not found" });
+    }
+
+    // Verify the user is part of this match
+    if (!match.users.includes(req.user.id)) {
+      return res
+        .status(403)
+        .json({ msg: "Not authorized to view messages in this match" });
+    }
+
+    // Filter messages if 'before' timestamp is provided
+    let messages = match.messages;
+    if (before) {
+      messages = messages.filter((msg) => msg.timestamp < parseInt(before));
+    }
+
+    // Sort by timestamp and limit
+    messages.sort((a, b) => b.timestamp - a.timestamp);
+    messages = messages.slice(0, parseInt(limit));
+
+    res.json(messages);
+  } catch (err) {
+    console.error("Error in getMessages:", err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// Get match suggestions
+exports.getMatchSuggestions = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    // Find potential matches based on preferences
+    const suggestions = await User.find({
+      _id: { $ne: req.user.id },
+      isActive: true,
+      accountStatus: "active",
+      preferredWorkouts: { $in: user.preferredWorkouts },
+      fitnessLevel: user.fitnessLevel,
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: user.location.coordinates,
+          },
+          $maxDistance: 50000, // 50km radius
+        },
+      },
+    })
+      .select(
+        "name profileImage location.address fitnessLevel preferredWorkouts"
+      )
+      .limit(20);
+
+    res.json(suggestions);
   } catch (err) {
     console.error("Error in getMatchSuggestions:", err.message);
     res.status(500).send("Server error");
