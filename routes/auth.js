@@ -68,6 +68,7 @@ router.post("/register", async (req, res) => {
       { expiresIn: "24h" },
       (err, token) => {
         if (err) throw err;
+        console.log("API Response - Register:", { token });
         res.json({ token });
       }
     );

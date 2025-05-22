@@ -43,6 +43,10 @@ const upload = multer({
 router.get("/", auth, async (req, res) => {
   try {
     const users = await User.find().select("-password").sort({ name: 1 });
+
+    // Log the response data to the terminal
+    console.log("API Response - Users:", users);
+
     res.json(users);
   } catch (err) {
     console.error("Error in GET /api/users:", err.message);

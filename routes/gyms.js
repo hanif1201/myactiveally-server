@@ -12,26 +12,15 @@ const Gym = require("../models/Gym");
 // @access  Public
 router.get("/", async (req, res) => {
   try {
-    const { lat, lng, radius = 5000 } = req.query;
-    let query = {};
+    const gyms = await Gym.find();
 
-    if (lat && lng) {
-      query.location = {
-        $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: [parseFloat(lng), parseFloat(lat)],
-          },
-          $maxDistance: parseInt(radius),
-        },
-      };
-    }
+    // Log the response data to the terminal
+    console.log("API Response - Gyms:", gyms);
 
-    const gyms = await Gym.find(query).sort({ name: 1 });
     res.json(gyms);
   } catch (err) {
-    console.error("Error in GET /api/gyms:", err.message);
-    res.status(500).json({ msg: "Server error" });
+    console.error("Error fetching gyms:", err.message);
+    res.status(500).send("Server error");
   }
 });
 

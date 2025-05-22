@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const config = require("../config/config");
+const config = require("config");
 const User = require("../models/User");
 const Instructor = require("../models/Instructor");
 
@@ -225,51 +225,50 @@ exports.resetPassword = async (req, res) => {
 
 // Admin login
 exports.adminLogin = async (req, res) => {
-  const { email, password } = req.body;
-
   try {
+    const { email, password } = req.body;
+    console.log("Admin Login Request:", { email, password });
+
     // Check if user exists
     const user = await User.findOne({ email }).select("+password");
     if (!user) {
+      console.log("User not found");
       return res.status(400).json({ msg: "Invalid credentials" });
     }
 
     // Check if user is an admin
     if (user.role !== "admin") {
-      return res.status(403).json({ msg: "Not authorized as admin" });
+      console.log("User is not an admin");
+      return res.status(403).json({ msg: "Access denied" });
     }
 
-    // Check password
+    // Validate password using the model's method
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      console.log("Invalid password");
       return res.status(400).json({ msg: "Invalid credentials" });
     }
 
-    // Check if account is active
-    if (!user.isActive || user.accountStatus !== "active") {
-      return res.status(401).json({ msg: "Account is not active" });
-    }
-
-    // Create and return JWT token
+    // Create JWT payload
     const payload = {
       user: {
         id: user.id,
-        userType: user.userType,
-        role: user.role,
       },
     };
 
+    // Sign token
     jwt.sign(
       payload,
-      config.jwtSecret,
-      { expiresIn: config.jwtExpiration },
+      config.get("jwtSecret"),
+      { expiresIn: "24h" },
       (err, token) => {
         if (err) throw err;
+        console.log("Admin Login Response:", { token });
         res.json({ token });
       }
     );
   } catch (err) {
     console.error("Error in adminLogin:", err.message);
-    res.status(500).send("Server error");
+    res.status(500).json({ msg: "Server error" });
   }
 };
